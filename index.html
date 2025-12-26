@@ -25,6 +25,84 @@
       --line: #777;
     }
 
+    /* ====== LOGIN PAGE ====== */
+    .loginScreen{
+      position:fixed;
+      inset:0;
+      background:linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      z-index:10000;
+    }
+    .loginScreen.hidden{
+      display:none;
+    }
+    .loginBox{
+      background:#fff;
+      border-radius:20px;
+      padding:40px;
+      width:90%;
+      max-width:400px;
+      box-shadow:0 20px 60px rgba(0,0,0,.3);
+    }
+    .loginBox h2{
+      margin:0 0 8px;
+      font-size:24px;
+      text-align:center;
+      color:#333;
+    }
+    .loginBox .subtitle{
+      text-align:center;
+      color:#666;
+      font-size:14px;
+      margin-bottom:28px;
+    }
+    .loginBox label{
+      display:block;
+      font-size:13px;
+      color:#555;
+      margin:16px 0 6px;
+      font-weight:600;
+    }
+    .loginBox input[type="text"],
+    .loginBox input[type="password"]{
+      width:100%;
+      box-sizing:border-box;
+      padding:12px 14px;
+      border:2px solid #e0e0e0;
+      border-radius:10px;
+      font-size:14px;
+      outline:none;
+      transition:border-color .2s;
+    }
+    .loginBox input[type="text"]:focus,
+    .loginBox input[type="password"]:focus{
+      border-color:#667eea;
+    }
+    .loginBox .errorMsg{
+      color:#e74c3c;
+      font-size:12px;
+      margin-top:6px;
+      min-height:18px;
+    }
+    .loginBox button{
+      width:100%;
+      padding:14px;
+      margin-top:20px;
+      background:#667eea;
+      color:#fff;
+      border:0;
+      border-radius:10px;
+      font-size:15px;
+      font-weight:600;
+      cursor:pointer;
+      transition:background .2s;
+    }
+    .loginBox button:hover{
+      background:#5568d3;
+    }
+
     /* ====== APP LAYOUT ====== */
     body{
       margin:0;
@@ -39,6 +117,9 @@
       padding:16px;
       height:100vh;
       box-sizing:border-box;
+    }
+    .app.hidden{
+      display:none;
     }
     .panel{
       background:#fff;
@@ -449,7 +530,23 @@
 </head>
 
 <body>
-  <div class="app">
+  <!-- ================= LOGIN SCREEN ================= -->
+  <div class="loginScreen" id="loginScreen">
+    <div class="loginBox">
+      <h2>怡心集團公告產生器</h2>
+      <div class="subtitle">請輸入帳號密碼以繼續</div>
+      <form id="loginForm" onsubmit="return false;">
+        <label>帳號</label>
+        <input type="text" id="loginUsername" autocomplete="username" required />
+        <label>密碼</label>
+        <input type="password" id="loginPassword" autocomplete="current-password" required />
+        <div class="errorMsg" id="loginError"></div>
+        <button type="submit">登入</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="app" id="mainApp">
     <!-- ================= LEFT ================= -->
     <div class="panel">
       <h2>怡心集團公告產生</h2>
@@ -1471,13 +1568,120 @@
     $("sealPosX").addEventListener("blur", () => { syncSealStateFromInputs(); syncSealInputsFromState(); scheduleRender(); });
     $("sealPosY").addEventListener("blur", () => { syncSealStateFromInputs(); syncSealInputsFromState(); scheduleRender(); });
 
-    // Init
-    enableSealDrag();
-    initIssueDateSelectors();
-    applyDefaultContent();
-    updateDocNo();
-    syncSealInputsFromState();
-    render();
+    // ====== Login Authentication ======
+    // ⚠️ 安全提醒：這是前端驗證，僅適合內部使用。真正需要安全時請使用後端驗證。
+    
+    // ✅ 帳號密碼設定（請修改為你想要的帳號密碼）
+    // 使用簡單雜湊來隱藏密碼（至少不會明文顯示，但仍可被破解）
+    async function simpleHash(str){
+      // 簡單的雜湊函數（僅用於隱藏，非加密）
+      let hash = 0;
+      for(let i = 0; i < str.length; i++){
+        const char = str.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash; // Convert to 32bit integer
+      }
+      return Math.abs(hash).toString(16);
+    }
+
+    // 預設帳號密碼（請修改）
+    const DEFAULT_USERNAME = "0000";
+    const DEFAULT_PASSWORD = "17520212"; // 請修改為你想要的密碼
+
+    // 計算密碼雜湊（只在第一次載入時計算一次）
+    let PASSWORD_HASH = null;
+    (async () => {
+      PASSWORD_HASH = await simpleHash(DEFAULT_PASSWORD);
+    })();
+
+    function checkLoginStatus(){
+      // 檢查 sessionStorage 中是否有登入狀態（關閉瀏覽器後需重新登入）
+      return sessionStorage.getItem("isLoggedIn") === "true";
+    }
+
+    function setLoginStatus(loggedIn){
+      if(loggedIn){
+        sessionStorage.setItem("isLoggedIn", "true");
+      } else {
+        sessionStorage.removeItem("isLoggedIn");
+      }
+    }
+
+    function showLoginScreen(){
+      const loginScreen = $("loginScreen");
+      const mainApp = $("mainApp");
+      if(loginScreen) loginScreen.classList.remove("hidden");
+      if(mainApp) mainApp.classList.add("hidden");
+    }
+
+    function showMainApp(){
+      const loginScreen = $("loginScreen");
+      const mainApp = $("mainApp");
+      if(loginScreen) loginScreen.classList.add("hidden");
+      if(mainApp) mainApp.classList.remove("hidden");
+    }
+
+    async function handleLogin(event){
+      if(event) event.preventDefault();
+      
+      const username = $("loginUsername").value.trim();
+      const password = $("loginPassword").value.trim();
+      const errorMsg = $("loginError");
+      
+      if(!username || !password){
+        if(errorMsg) errorMsg.textContent = "請輸入帳號和密碼";
+        return false;
+      }
+
+      // 等待雜湊計算完成
+      if(!PASSWORD_HASH){
+        await new Promise(resolve => setTimeout(resolve, 100));
+        if(!PASSWORD_HASH) PASSWORD_HASH = await simpleHash(DEFAULT_PASSWORD);
+      }
+
+      const inputHash = await simpleHash(password);
+      if(username === DEFAULT_USERNAME && inputHash === PASSWORD_HASH){
+        setLoginStatus(true);
+        showMainApp();
+        // 登入成功後才初始化主要功能
+        initMainApp();
+        return true;
+      } else {
+        if(errorMsg) errorMsg.textContent = "帳號或密碼錯誤";
+        $("loginPassword").value = "";
+        return false;
+      }
+    }
+
+    function initMainApp(){
+      // 原本的初始化程式碼
+      enableSealDrag();
+      initIssueDateSelectors();
+      applyDefaultContent();
+      updateDocNo();
+      syncSealInputsFromState();
+      render();
+    }
+
+    // 頁面載入時檢查登入狀態
+    if(checkLoginStatus()){
+      showMainApp();
+      // 已登入，直接初始化
+      initMainApp();
+    } else {
+      showLoginScreen();
+      // 綁定登入表單事件
+      const loginForm = $("loginForm");
+      if(loginForm){
+        loginForm.addEventListener("submit", handleLogin);
+      }
+      // 按 Enter 鍵也可以登入
+      $("loginPassword").addEventListener("keypress", (e) => {
+        if(e.key === "Enter"){
+          handleLogin(e);
+        }
+      });
+    }
   </script>
 </body>
 </html>
