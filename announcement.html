@@ -1,0 +1,1483 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>怡心公告產生器</title>
+
+  <!-- ✅ 離線版：本檔已移除外部 CDN 依賴，分頁由內建 JS 實作（本機可直接開啟使用） -->
+  <!-- Word 下載功能需要 html-docx-js（僅在點擊下載 Word 時動態載入） -->
+  <script src="https://cdn.jsdelivr.net/npm/html-docx-js@0.3.1/dist/html-docx.min.js"></script>
+
+  <style>
+    :root{
+      --page-width: 210mm;
+      --page-height: 297mm;
+      /* 依照公司公告模板：上邊界 1cm */
+      --margin-top: 10mm;
+      --margin-bottom: 18mm;
+      --margin-left: 18mm;
+      --margin-right: 18mm;
+
+      --font: "Noto Sans TC","Microsoft JhengHei","PingFang TC",sans-serif;
+      --text: #111;
+      --muted: #444;
+      --line: #777;
+    }
+
+    /* ====== APP LAYOUT ====== */
+    body{
+      margin:0;
+      font-family: var(--font);
+      color: var(--text);
+      background:#f5f6f8;
+    }
+    .app{
+      display:grid;
+      grid-template-columns: 460px 1fr;
+      gap:16px;
+      padding:16px;
+      height:100vh;
+      box-sizing:border-box;
+    }
+    .panel{
+      background:#fff;
+      border-radius:14px;
+      box-shadow:0 6px 18px rgba(0,0,0,.08);
+      overflow:auto;
+      padding:14px 14px 22px;
+    }
+    .panel h2{ margin:6px 0 12px; font-size:18px; }
+    .row{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:10px;
+    }
+    label{
+      display:block;
+      font-size:12px;
+      color:var(--muted);
+      margin:10px 0 6px;
+    }
+    input[type="text"], textarea, select, input[type="range"]{
+      width:100%;
+      box-sizing:border-box;
+      padding:10px 10px;
+      border:1px solid #d8dbe2;
+      border-radius:10px;
+      font-size:13px;
+      outline:none;
+      background:#fff;
+    }
+    textarea{ min-height:80px; resize:vertical; }
+    .btns{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      margin-top:12px;
+    }
+    button{
+      padding:10px 12px;
+      border:0;
+      border-radius:10px;
+      cursor:pointer;
+      font-weight:600;
+      font-size:13px;
+      box-shadow:0 4px 10px rgba(0,0,0,.08);
+    }
+    .primary{ background:#1b63ff; color:#fff; }
+    .ghost{ background:#fff; border:1px solid #d8dbe2; box-shadow:none; }
+    .danger{ background:#ff3b3b; color:#fff; }
+    .hint{
+      font-size:12px;
+      color:#666;
+      margin-top:8px;
+      line-height:1.5;
+    }
+    hr.sep{
+      margin:14px 0;
+      border:0;
+      border-top:1px solid #eee;
+    }
+
+    /* ====== Dynamic Items UI ====== */
+    .itemBox{
+      border:1px solid #d8dbe2;
+      border-radius:12px;
+      padding:10px;
+      margin-top:6px;
+    }
+    .itemRow{
+      display:grid;
+      grid-template-columns: 1fr 70px;
+      gap:8px;
+      margin-bottom:8px;
+    }
+    .itemRow input,
+    .itemRow textarea{
+      padding:9px 10px;
+      border-radius:10px;
+      border:1px solid #d8dbe2;
+      font-size:13px;
+      width:100%;
+      box-sizing:border-box;
+    }
+    .itemRow textarea{
+      min-height:80px;
+      resize:vertical;
+      font-family:inherit;
+    }
+    .itemRow .delBtn{
+      background:#fff;
+      border:1px solid #ffd1d1;
+      color:#b30000;
+      box-shadow:none;
+    }
+    .addBtn{
+      background:#0ea5e9;
+      color:#fff;
+      box-shadow:none;
+      padding:8px 10px;
+      border-radius:10px;
+      font-size:13px;
+      font-weight:700;
+    }
+    /* 條列新增按鈕：依需求下移 0.5mm */
+    #btnAddItem{ margin-top: 0.5mm; }
+
+    /* ====== PREVIEW ====== */
+    .previewWrap{
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+    .previewTop{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+    .previewTop h2{ margin:0; }
+    .previewFrame{
+      background:#cfd3dc;
+      padding:18px;
+      border-radius:14px;
+      overflow:auto;
+      box-shadow:0 6px 18px rgba(0,0,0,.08);
+      position:relative; /* fallback 模式：讓印章可用 absolute 依附在預覽框內 */
+    }
+    /* ====== PAGE LOCK ====== */
+    @page{
+      size: A4;
+      margin: var(--margin-top) var(--margin-right) var(--margin-bottom) var(--margin-left);
+    }
+
+    /* 預覽用容器（本機 JS 會生成多頁） */
+    .printRoot{
+      background:#cfd3dc;
+    }
+
+    /* ====== DOCUMENT ====== */
+    .doc{
+      font-size:16px;
+      line-height:1.75;
+      letter-spacing: .2px;
+      position:relative;
+    }
+
+    /* ✅ 浮水印：淡化置中（每頁） */
+    .watermark{
+      position:absolute;
+      inset:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      pointer-events:none;
+      z-index:0;
+    }
+    .watermark img{
+      width: 69%;
+      max-width: 720px;
+      opacity: .07;
+      filter: grayscale(1);
+      transform: none;
+    }
+    .contentLayer{
+      position:relative;
+      z-index:1;
+    }
+
+    /* ====== TEMPLATE (match company announcement) ====== */
+    .docHeader{
+      /* 固定版頭高度：不論右側資訊長短都不推擠、也不影響「主旨」落點 */
+      position:relative;
+      height: 48mm;
+      overflow:hidden;
+      margin-bottom: 6mm;
+    }
+    .docTopline{
+      /* 固定在 A4 上邊界往下 1cm（margin-top=10mm，因此 docHeader top=0 即可） */
+      position:absolute;
+      top:0;
+      right:0;
+      font-size:12px;
+      color:#777;
+      white-space:nowrap;
+    }
+    .docLogo{
+      position:absolute;
+      left:0;
+      top:14mm;
+      width:16mm;
+      height:16mm;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      overflow:hidden;
+    }
+    .docLogo img{ width:100%; height:100%; object-fit:contain; }
+    .docTitle{
+      /* 固定在 A4 上邊界往下 2cm（margin-top=10mm，因此 docHeader top=10mm） */
+      position:absolute;
+      /* 依需求調整：A4 上邊界往下 1.5cm（margin-top=10mm，所以此處 top=5mm） */
+      top:4.5mm;
+      left:0;
+      right:0;
+      text-align:center;
+      font-size:34px;
+      font-weight:800;
+      letter-spacing:8px;
+      white-space:nowrap; /* 置中標題永遠在同一行，不因其他欄位變動 */
+    }
+    .docCompanyInfo{
+      /* 右側公司資訊固定位置（回到上一版的「右上資訊塊」位置） */
+      position:absolute;
+      right:0;
+      top:20mm;
+      font-size:12px;
+      color:#111;
+      line-height:1.75;
+      max-width: 72mm;
+      overflow:hidden; /* 右側資訊太長時裁切，避免推擠其它區塊 */
+    }
+    .docCompanyInfo .infoRow{
+      display:flex;
+      gap:6px;
+      align-items:baseline;
+    }
+    .docCompanyInfo .k{
+      white-space:nowrap;
+      font-weight:700;
+    }
+    .docCompanyInfo .v{ word-break:break-word; }
+
+    .metaLeftBlock{
+      /* 固定此區塊高度，確保「主旨」永遠落在相同位置 */
+      margin-top: 2mm;
+      height: 32mm;
+      overflow:hidden;
+      font-size:13px;
+      line-height:1.55; /* 讓固定高度內可穩定容納所有行 */
+    }
+    .recipientLine{
+      /* 受文者字體/間距：與「發文時間」等 metaLine 一致，且位置固定 */
+      font-size:14px;
+      font-weight:400;
+      margin: 0;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .metaLine{
+      margin: 0;
+      display:flex;
+      gap:6px;
+      align-items:baseline;
+      white-space:nowrap; /* 防止換行把下一行擠掉（固定高度會裁切） */
+    }
+    .metaLine .k{
+      font-weight:700;
+      white-space:nowrap;
+      flex: 0 0 auto;
+    }
+    .metaLine .v{
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .secrecyTag{
+      display:inline-block;
+      background:#e60000;
+      color:#000;
+      padding:1px 6px;
+      font-weight:800;
+      line-height:1.4;
+      flex: 0 0 auto; /* 不拉伸，只包住文字本身 */
+      white-space:nowrap;
+    }
+
+    .subjectRow{
+      display:grid;
+      grid-template-columns: 64px 1fr;
+      gap:6px;
+      margin: 6mm 0 0mm;
+      font-weight:900;
+      font-size:20px;
+    }
+    .explainRow{
+      display:grid;
+      grid-template-columns: 64px 1fr;
+      gap:6px;
+      /* 縮小「主旨」與「說明」之間的間距 */
+      margin: 1mm 0 8px;
+      font-size:18px;
+    }
+    .explainRow .k{ font-weight:900; }
+    .sectionTitle{
+      font-weight:900;
+      margin: 12px 0 6px;
+    }
+
+    /* ✅ 中文條列 */
+    .cnList{
+      margin:0;
+      padding-left: 0;
+      list-style:none;
+      font-size:18px;
+      line-height:1.9;
+    }
+    .cnList li{
+      margin: 8px 0;
+      display:grid;
+      grid-template-columns: 44px 1fr;
+      gap:6px;
+      align-items:start;
+    }
+    .cnList .idx{
+      font-weight:900;
+      white-space:nowrap;
+    }
+    .avoidBreak{ break-inside: avoid; page-break-inside: avoid; }
+
+    /* ====== LOCAL PAGINATION (offline) ====== */
+    .page{
+      width: var(--page-width);
+      margin: 0 auto 18px;
+    }
+    .pagebox{
+      width: var(--page-width);
+      height: var(--page-height);
+      background:#fff;
+      box-sizing:border-box;
+      padding: var(--margin-top) var(--margin-right) var(--margin-bottom) var(--margin-left);
+      box-shadow: 0 10px 26px rgba(0,0,0,.18);
+      border-radius: 6px;
+      position:relative;
+      overflow:hidden;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+    .pageContent{
+      flex:1;
+      position:relative;
+      z-index:1;
+      overflow:hidden; /* 量測溢位用 */
+    }
+    .pageFooter{
+      position:relative;
+      z-index:1;
+      font-size:12px;
+      color:#c7c7c7;
+      width:100%;
+      text-align:center;
+      padding-top:6px;
+      border-top:0;
+    }
+
+    /* ✅ 印章拖曳（會被移到最後一頁） */
+    .sealDraggable{
+      position:absolute;
+      z-index:999;
+      cursor:grab;
+      user-select:none;
+      touch-action:none;
+      display:none;
+    }
+    .sealDraggable.dragging{
+      cursor:grabbing;
+      opacity:0.92;
+      filter: drop-shadow(0 6px 12px rgba(0,0,0,.25));
+    }
+    .sealDraggable img{
+      display:block;
+      width: 96px; /* 固定尺寸（所有印章一致）- 120px 縮小 20% */
+    }
+    .sealHint{
+      position:absolute;
+      transform: translateY(-100%);
+      background:rgba(0,0,0,.72);
+      color:#fff;
+      font-size:11px;
+      padding:6px 8px;
+      border-radius:10px;
+      white-space:nowrap;
+      left:0;
+      top:-8px;
+      opacity:0;
+      transition:opacity .15s ease;
+      pointer-events:none;
+    }
+    .sealDraggable:hover .sealHint{ opacity:1; }
+
+    /* ====== PRINT MODE ====== */
+    @media print{@page{ size: A4; margin: 0; }
+
+      body{ background:#fff; }
+      .app{ display:block; padding:0; height:auto; }
+      .panel{ display:none; }
+      .previewTop{ display:none; }
+      .previewFrame{ padding:0; background:#fff; box-shadow:none; }
+      .sealDraggable{ cursor:default; }
+      .printRoot{ background:#fff; }
+      .page{ margin:0; page-break-after: always; break-after: page; }
+      .page.last-page{ page-break-after: auto; break-after: auto; } /* 最後一頁不要強制分頁 */
+      .pagebox{ box-shadow:none; border-radius:0; }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="app">
+    <!-- ================= LEFT ================= -->
+    <div class="panel">
+      <h2>怡心集團公告產生</h2>
+
+      <div class="row">
+        <div>
+          <label>發文單位</label>
+          <select id="issueUnit">
+            <option value="品牌及客服">品牌及客服</option>
+            <option value="製造暨研發部門（含研發、品管）">製造暨研發部門（含研發、品管）</option>
+            <option value="管理暨財務部門（含財務、銷售、行政管理、人事辦法）">管理暨財務部門（含財務、銷售、行政管理、人事辦法）</option>
+          </select>
+        </div>
+        <div>
+          <label>發文方式</label>
+          <input type="text" id="deliveryMethod" value="電子傳送" />
+        </div>
+      </div>
+
+      <label>公司名稱</label>
+      <input type="text" id="companyName" value="怡心工業股份有限公司" />
+
+      <div class="row">
+        <div>
+          <label>統編</label>
+          <input type="text" id="companyTaxId" value="70596931" />
+        </div>
+        <div>
+          <label>電話</label>
+          <input type="text" id="companyTel" value="04-7985998" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>傳真</label>
+          <input type="text" id="companyFax" value="04-7985198" />
+        </div>
+        <div>
+          <label>承辦人</label>
+          <input type="text" id="handler" value="黃鈞敬" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>地址</label>
+          <input type="text" id="companyAddr" value="彰化縣伸港鄉興工路1-58號" />
+        </div>
+        <div>
+          <label>承辦人 Email</label>
+          <input type="text" id="handlerEmail" value="dean.huang@e-sing.com.tw" />
+        </div>
+      </div>
+
+      <hr class="sep" />
+
+      <div class="row">
+        <div>
+          <label>受文者</label>
+          <input type="text" id="recipient" value="怡心集團各分公司" />
+        </div>
+        <div>
+          <label>發文時間</label>
+          <div class="row" style="grid-template-columns: 1fr 1fr 1fr; gap:10px;">
+            <select id="issueYear"></select>
+            <select id="issueMonth"></select>
+            <select id="issueDay"></select>
+          </div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>發文字號（自動生成）</label>
+          <input type="text" id="docNo" value="" readonly />
+        </div>
+        <div>
+          <label>機密等級</label>
+          <select id="secrecy">
+            <option value="無">無</option>
+            <option value="內部機密" selected>內部機密</option>
+            <option value="絕對機密">絕對機密</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>當日發文流水號（3 碼）</label>
+          <input type="text" id="docSeq" value="001" />
+        </div>
+        <div>
+          <label>附件（可留空）</label>
+          <input type="text" id="attachments" value="" placeholder="例如：會議議程 1 份" />
+        </div>
+      </div>
+
+      <label>主旨（以一行為限）</label>
+      <input type="text" id="subject" value="" placeholder="請填寫內容" />
+
+      <label>說明（可多行）</label>
+      <textarea id="explain" placeholder="請填寫內容"></textarea>
+
+      <hr class="sep" />
+
+      <label>條列內容（動態新增/刪除）</label>
+      <div class="itemBox" id="itemBox"></div>
+      <button class="addBtn" id="btnAddItem" type="button">新增</button>
+
+      <hr class="sep" />
+
+      <label>印章位置（X / Y）</label>
+      <div class="row" style="grid-template-columns: 1fr 1fr; gap:10px;">
+        <input type="text" id="sealPosX" value="360" placeholder="X（px）" />
+        <input type="text" id="sealPosY" value="620" placeholder="Y（px）" />
+      </div>
+      <div class="hint">單位為 px（相對於「最後一頁內容框」左上角）。也可直接在最後一頁拖曳印章定位。</div>
+
+      <div class="btns">
+        <button class="primary" id="btnUpdate" type="button">更新預覽</button>
+        <button class="primary" id="btnPdf" type="button">下載 PDF</button>
+        <button class="primary" id="btnWord" type="button">下載 Word</button>
+        <button class="danger" id="btnReset" type="button">重設</button>
+      </div>
+    </div>
+
+    <!-- ================= RIGHT ================= -->
+    <div class="previewWrap">
+      <div class="previewTop">
+        <h2>預覽</h2>
+        <div class="hint" style="margin:0;">發出前請再次確認內容正確性。</div>
+      </div>
+
+      <div class="previewFrame" id="previewFrame">
+        <!-- 這段不依賴 JS：若你在 VS Code 的某些 Preview 看到空白，通常是該 Preview 不渲染 HTML 或禁用 JS -->
+        <div id="staticPreviewHelp" class="hint" style="margin:0 0 10px;">
+          若你正在用 VS Code 的某些「Preview」看到空白，原因通常是：<br/>
+          - 該 Preview <b>不會執行 JavaScript</b>（本頁預覽/分頁高度依賴 JS）<br/>
+          - 或你其實開的是 <b>Markdown Preview</b>（HTML 檔不會正常渲染）<br/>
+          建議：改用 <b>Live Server</b> / <b>Live Preview</b> 在 VS Code 內用瀏覽器方式開啟。
+        </div>
+        <noscript>
+          <div class="hint" style="margin:0 0 10px;">
+            ⚠️ 偵測到目前環境 <b>停用 JavaScript</b>，因此本頁無法產生預覽。請用瀏覽器開啟或使用 Live Server/Live Preview。
+          </div>
+        </noscript>
+        <!-- ⚠️ VS Code 內建某些 Preview 可能不執行 JavaScript：請用瀏覽器或 Live Server/Live Preview -->
+        <div id="previewNotice" class="hint" style="margin:0 0 10px; display:none;"></div>
+        <!-- ✅ 本機分頁後的多頁容器 -->
+        <div id="printRoot" class="printRoot"></div>
+
+        <!-- ✅ 印章拖曳物件：會在分頁完成後移到最後一頁 -->
+        <div id="sealDrag" class="sealDraggable">
+          <div class="sealHint">拖曳印章定位（固定最後一頁）</div>
+          <img id="sealImg" alt="seal" />
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const CN_NUM = ["一","二","三","四","五","六","七","八","九","十","十一","十二","十三","十四","十五","十六","十七","十八","十九","二十"];
+
+    function escapeHtml(str){
+      return String(str || "")
+        .replaceAll("&","&amp;")
+        .replaceAll("<","&lt;")
+        .replaceAll(">","&gt;")
+        .replaceAll('"',"&quot;")
+        .replaceAll("'","&#039;");
+    }
+
+    const DEFAULT_CONTENT_PRESET = {
+      subject: "",
+      explain: "",
+      items: []
+    };
+
+    // ====== Date / DocNo Helpers ======
+    function pad2(n){ return String(n).padStart(2, "0"); }
+    function pad3(n){ return String(n).padStart(3, "0"); }
+    function todayISO(){
+      const d = new Date();
+      const y = d.getFullYear();
+      const m = d.getMonth() + 1;
+      const day = d.getDate();
+      return `${y}-${pad2(m)}-${pad2(day)}`;
+    }
+    function isoToYmd(iso){
+      const [y, m, d] = String(iso || "").split("-").map(x => parseInt(x, 10));
+      if(!y || !m || !d) return null;
+      return { y, m, d };
+    }
+    function rocYearFromAD(adYear){ return adYear - 1911; }
+    function rocDisplayFromISO(iso){
+      const p = isoToYmd(iso);
+      if(!p) return "";
+      return `中華民國 ${rocYearFromAD(p.y)} 年 ${pad2(p.m)} 月 ${pad2(p.d)} 日`;
+    }
+    function rocCompactFromISO(iso){
+      const p = isoToYmd(iso);
+      if(!p) return "";
+      return `${rocYearFromAD(p.y)}${pad2(p.m)}${pad2(p.d)}`;
+    }
+    function getIssueDateISOFromUI(){
+      const rocY = parseInt($("issueYear").value, 10);
+      const m = parseInt($("issueMonth").value, 10);
+      const d = parseInt($("issueDay").value, 10);
+      const adY = rocY + 1911;
+      return `${adY}-${pad2(m)}-${pad2(d)}`;
+    }
+    function getIssueUnitFirstChar(){
+      const unit = ($("issueUnit")?.value || "").trim();
+      return unit ? unit.slice(0, 1) : "";
+    }
+    function getDocSeqPadded(){
+      const raw = ($("docSeq")?.value || "").trim();
+      const digits = raw.replaceAll(/[^\d]/g, "");
+      const n = digits ? parseInt(digits, 10) : 1;
+      return pad3(Math.max(0, n));
+    }
+    function computeDocNo(){
+      const head = getIssueUnitFirstChar() || "＿";
+      const datePart = rocCompactFromISO(getIssueDateISOFromUI());
+      const seq = getDocSeqPadded();
+      return `總（${head}）字第 ${datePart}${seq} 號`;
+    }
+    function updateDocNo(){
+      const el = $("docNo");
+      if(!el) return;
+      el.value = computeDocNo();
+    }
+
+    function refreshDayOptions(){
+      const rocY = parseInt($("issueYear").value, 10);
+      const m = parseInt($("issueMonth").value, 10);
+      const adY = rocY + 1911;
+      const days = new Date(adY, m, 0).getDate();
+
+      const current = parseInt($("issueDay").value, 10) || 1;
+      $("issueDay").innerHTML = "";
+      for(let d=1; d<=days; d++){
+        const opt = document.createElement("option");
+        opt.value = String(d);
+        opt.textContent = pad2(d);
+        $("issueDay").appendChild(opt);
+      }
+      $("issueDay").value = String(Math.min(current, days));
+    }
+
+    function initIssueDateSelectors(){
+      const iso = todayISO();
+      const p = isoToYmd(iso);
+      const rocNow = rocYearFromAD(p.y);
+
+      // 年：給一個合理區間（近 10 年），都用下拉式
+      $("issueYear").innerHTML = "";
+      for(let y = rocNow - 5; y <= rocNow + 5; y++){
+        const opt = document.createElement("option");
+        opt.value = String(y);
+        opt.textContent = String(y);
+        $("issueYear").appendChild(opt);
+      }
+
+      $("issueMonth").innerHTML = "";
+      for(let m=1; m<=12; m++){
+        const opt = document.createElement("option");
+        opt.value = String(m);
+        opt.textContent = pad2(m);
+        $("issueMonth").appendChild(opt);
+      }
+
+      $("issueYear").value = String(rocNow);
+      $("issueMonth").value = String(p.m);
+      refreshDayOptions();
+      $("issueDay").value = String(p.d);
+    }
+
+    // ====== State ======
+    // 離線固定資源（把檔案放在 announcement.html 同層即可）
+    const WATERMARK_LOGO_SRC = "./esing-logo.png";
+    const SEAL_SRC = "./seal.png";
+    const SEAL_SIZE_PX = 96; // 固定尺寸（所有印章一致）- 120px 縮小 20%
+    let logoDataUrl = "";  // 預留：之後若要放「頁首小 logo」可用
+    let wmDataUrl = WATERMARK_LOGO_SRC; // ✅ 浮水印：置中淡灰
+    let sealDataUrl = SEAL_SRC; // ✅ 公司印章（固定最後一頁）
+    // ✅ 印章位置（相對於「最後一頁」的內容框）
+    let sealPos = { x: 360, y: 620 };
+
+    function syncSealInputsFromState(){
+      const x = $("sealPosX"); const y = $("sealPosY");
+      if(x) x.value = String(Math.round(sealPos.x));
+      if(y) y.value = String(Math.round(sealPos.y));
+    }
+    function syncSealStateFromInputs(){
+      const xRaw = ($("sealPosX")?.value || "").trim();
+      const yRaw = ($("sealPosY")?.value || "").trim();
+      const x = parseInt(xRaw.replaceAll(/[^\d-]/g,"") || "0", 10);
+      const y = parseInt(yRaw.replaceAll(/[^\d-]/g,"") || "0", 10);
+      sealPos.x = isFinite(x) ? x : sealPos.x;
+      sealPos.y = isFinite(y) ? y : sealPos.y;
+    }
+
+    // ====== Dynamic Items ======
+    function clearItemsUI(){ $("itemBox").innerHTML = ""; }
+    function addItemUI(value=""){
+      const wrap = document.createElement("div");
+      wrap.className = "itemRow";
+
+      const textarea = document.createElement("textarea");
+      textarea.value = value;
+      textarea.placeholder = "請填寫內容";
+
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "delBtn";
+      del.textContent = "刪除";
+      del.addEventListener("click", () => { wrap.remove(); scheduleRender(); });
+
+      textarea.addEventListener("input", () => scheduleRender());
+
+      wrap.appendChild(textarea);
+      wrap.appendChild(del);
+      $("itemBox").appendChild(wrap);
+    }
+    function getItemsFromUI(){
+      const rows = $("itemBox").querySelectorAll("textarea");
+      return Array.from(rows).map(i => i.value.trim()).filter(Boolean);
+    }
+
+    // ====== Form Data ======
+    function getFormData(){
+      return {
+        issueUnit: $("issueUnit").value,
+        deliveryMethod: $("deliveryMethod").value,
+        companyName: $("companyName").value,
+        companyTaxId: $("companyTaxId").value,
+        companyAddr: $("companyAddr").value,
+        companyTel: $("companyTel").value,
+        companyFax: $("companyFax").value,
+        handler: $("handler").value,
+        handlerEmail: $("handlerEmail").value,
+        recipient: $("recipient").value,
+        issueDateISO: getIssueDateISOFromUI(),
+        issueDate: rocDisplayFromISO(getIssueDateISOFromUI()),
+        docSeq: getDocSeqPadded(),
+        docNo: computeDocNo(),
+        secrecy: $("secrecy").value,
+        attachments: $("attachments").value,
+        subject: $("subject").value,
+        explain: $("explain").value,
+        items: getItemsFromUI()
+      };
+    }
+    function setFormData(data){
+      // 兼容舊資料：templateType 不再使用
+      $("issueUnit").value = data.issueUnit || $("issueUnit").value || "品牌及客服";
+      $("deliveryMethod").value = data.deliveryMethod ?? "電子傳送";
+      $("companyName").value = data.companyName ?? "怡心工業股份有限公司";
+      $("companyTaxId").value = data.companyTaxId ?? "70596931";
+      $("companyAddr").value = data.companyAddr ?? "彰化縣伸港鄉興工路1-58號";
+      $("companyTel").value = data.companyTel ?? "04-7985998";
+      $("companyFax").value = data.companyFax ?? "04-7985198";
+      $("handler").value = data.handler ?? "黃貞敏";
+      $("handlerEmail").value = data.handlerEmail ?? "dean.huang@e-sing.com.tw";
+      $("recipient").value = data.recipient ?? "怡心集團各分公司";
+      // 發文時間：以 ISO 儲存為主；若只有舊版 issueDate 文字，則保留今天
+      const iso = data.issueDateISO || todayISO();
+      const p = isoToYmd(iso) || isoToYmd(todayISO());
+      const rocY = rocYearFromAD(p.y);
+      // 若年份不在現有 options，補進去
+      if(!$("issueYear").querySelector(`option[value="${rocY}"]`)){
+        const opt = document.createElement("option");
+        opt.value = String(rocY);
+        opt.textContent = String(rocY);
+        $("issueYear").appendChild(opt);
+      }
+      $("issueYear").value = String(rocY);
+      $("issueMonth").value = String(p.m);
+      refreshDayOptions();
+      $("issueDay").value = String(p.d);
+
+      // 流水號
+      $("docSeq").value = (data.docSeq ? pad3(parseInt(String(data.docSeq).replaceAll(/[^\d]/g,"") || "1", 10)) : "001");
+
+      updateDocNo();
+      $("secrecy").value = data.secrecy ?? "內部機密";
+      $("attachments").value = data.attachments ?? "";
+      $("subject").value = data.subject ?? "";
+      $("explain").value = data.explain ?? "";
+
+      clearItemsUI();
+      (data.items || []).forEach(it => addItemUI(it));
+      if((data.items || []).length === 0) addItemUI("");
+    }
+
+    // ====== Render Document HTML ======
+    function buildCnList(items){
+      const lines = (items || []).filter(Boolean);
+      if(lines.length === 0) return "<div style='color:#999;'>請填寫內容</div>";
+
+      const li = lines.map((line, idx) => {
+        const n = CN_NUM[idx] || (idx+1);
+        // 處理多行文字（textarea 輸入的換行）
+        const lineHtml = escapeHtml(line).replaceAll("\n","<br/>");
+        return `
+          <li class="avoidBreak">
+            <div class="idx">${n}、</div>
+            <div class="txt">${lineHtml}</div>
+          </li>
+        `;
+      }).join("");
+
+      return `<ul class="cnList">${li}</ul>`;
+    }
+
+    function buildDocHTML(){
+      const data = getFormData();
+      const attachmentLine = data.attachments.trim() ? escapeHtml(data.attachments.trim()) : "無";
+      const listHtml = buildCnList(data.items);
+
+      return `
+      <div class="doc">
+        <div class="contentLayer">
+          <div class="docHeader avoidBreak">
+            <div class="docTopline">發文方式：${escapeHtml(data.deliveryMethod)}</div>
+            ${logoDataUrl ? `<div class="docLogo"><img src="${logoDataUrl}" alt="logo"></div>` : ``}
+            <div class="docTitle">${escapeHtml(data.companyName)}</div>
+            <div class="docCompanyInfo">
+              <div class="infoRow"><span class="k">統一編號：</span><span class="v">${escapeHtml(data.companyTaxId)}</span></div>
+              <div class="infoRow"><span class="k">地址：</span><span class="v">${escapeHtml(data.companyAddr)}</span></div>
+              <div class="infoRow"><span class="k">電話：</span><span class="v">${escapeHtml(data.companyTel)}</span>&nbsp;&nbsp;<span class="k">傳真：</span><span class="v">${escapeHtml(data.companyFax)}</span></div>
+              <div class="infoRow"><span class="k">承辦人：</span><span class="v">${escapeHtml(data.handler)}</span></div>
+              <div class="infoRow"><span class="k">電子信箱：</span><span class="v">${escapeHtml(data.handlerEmail)}</span></div>
+            </div>
+          </div>
+
+          <div class="metaLeftBlock avoidBreak">
+            <div class="recipientLine">受文者：${escapeHtml(data.recipient)}</div>
+            <div class="metaLine"><span class="k">發文時間：</span><span class="v">${escapeHtml(data.issueDate)}</span></div>
+            <div class="metaLine"><span class="k">發文字號：</span><span class="v">${escapeHtml(data.docNo)}</span></div>
+            <div class="metaLine"><span class="k">機密等級：</span>${
+              (data.secrecy || "").trim() === "無"
+                ? `<span class="v">${escapeHtml(data.secrecy)}</span>`
+                : `<span class="secrecyTag">${escapeHtml(data.secrecy || "內部機密")}</span>`
+            }</div>
+            <div class="metaLine"><span class="k">附件：</span><span class="v">${attachmentLine}</span></div>
+          </div>
+
+          <div class="subjectRow avoidBreak">
+            <div class="k">主旨：</div>
+            <div class="v">${data.subject.trim() ? escapeHtml(data.subject) : '<span style="color:#999;">請填寫內容</span>'}</div>
+          </div>
+
+          <div class="explainRow avoidBreak">
+            <div class="k">說明：</div>
+            <div class="v">${data.explain.trim() ? escapeHtml(data.explain).replaceAll("\n","<br/>") : '<span style="color:#999;">請填寫內容</span>'}</div>
+          </div>
+          ${listHtml}
+        </div>
+      </div>
+      `;
+    }
+
+    // ====== Local Pagination (Offline) ======
+    function createPage(){
+      const page = document.createElement("div");
+      page.className = "page";
+
+      const box = document.createElement("div");
+      box.className = "pagebox";
+
+      if(wmDataUrl){
+        const wm = document.createElement("div");
+        wm.className = "watermark";
+        wm.innerHTML = `<img src="${wmDataUrl}" alt="watermark">`;
+        box.appendChild(wm);
+      }
+
+      const viewport = document.createElement("div");
+      viewport.className = "pageContent";
+
+      const doc = document.createElement("div");
+      doc.className = "doc";
+
+      const layer = document.createElement("div");
+      layer.className = "contentLayer";
+
+      doc.appendChild(layer);
+      viewport.appendChild(doc);
+
+      const footer = document.createElement("div");
+      footer.className = "pageFooter";
+      footer.textContent = ""; // render 後更新
+
+      box.appendChild(viewport);
+      box.appendChild(footer);
+      page.appendChild(box);
+
+      return { page, box, viewport, layer, footer };
+    }
+
+    function isOverflow(viewport){
+      // +1 避免不同瀏覽器的 subpixel 誤差
+      return viewport.scrollHeight > viewport.clientHeight + 1;
+    }
+
+    function tryAppend(pageObj, el){
+      pageObj.layer.appendChild(el);
+      if(isOverflow(pageObj.viewport)){
+        pageObj.layer.removeChild(el);
+        return false;
+      }
+      return true;
+    }
+
+    function splitExplainRow(explainEl, pageObj){
+      // 只針對「說明」嘗試以 <br/> 分段切割，避免單一區塊過長導致無限換頁
+      const v = explainEl.querySelector(".v");
+      if(!v) return null;
+      const raw = v.innerHTML || "";
+      const parts = raw.split(/<br\s*\/?>/i).map(s => s.trim()).filter(Boolean);
+      if(parts.length <= 1) return null;
+
+      const left = explainEl.cloneNode(true);
+      const right = explainEl.cloneNode(true);
+      const lv = left.querySelector(".v");
+      const rv = right.querySelector(".v");
+      if(!lv || !rv) return null;
+
+      // 逐行塞到 left，直到放不下
+      lv.innerHTML = "";
+      rv.innerHTML = "";
+      for(const line of parts){
+        const next = (lv.innerHTML ? (lv.innerHTML + "<br/>") : "") + line;
+        lv.innerHTML = next;
+        // 先塞進去量測：不合就回退並放進右側
+        if(!tryAppend(pageObj, left)){
+          // left 一行都放不下：直接放棄切割
+          return null;
+        }
+        // 放得下就先移除，等確定後再由呼叫端 append
+        pageObj.layer.removeChild(left);
+      }
+
+      // 上面作法會把全部都放進 left（因為每次 tryAppend 都成功），表示不需切
+      // 改用更保守的策略：從尾端移到 right，直到 left 放得下
+      lv.innerHTML = parts.join("<br/>");
+      rv.innerHTML = "";
+      while(parts.length > 1){
+        // 先確保 left 在空頁可測
+        if(tryAppend(pageObj, left)){
+          pageObj.layer.removeChild(left);
+          break;
+        }
+        const last = parts.pop();
+        rv.innerHTML = (last + (rv.innerHTML ? "<br/>" + rv.innerHTML : ""));
+        lv.innerHTML = parts.join("<br/>");
+      }
+      return { left, right: (rv.innerHTML ? right : null) };
+    }
+
+    function paginateAndRender(){
+      const root = $("printRoot");
+      // 重要：上一輪 render 可能把印章移進 printRoot 內的最後一頁；
+      // 若此時直接清空 root，印章節點會被一併刪掉，導致後續找不到 #sealDrag。
+      // 所以每次分頁前都先把印章搬回 previewFrame 當「安全家」。
+      const sealHome = $("previewFrame");
+      const sealEl = $("sealDrag");
+      if(sealHome && sealEl && sealEl.parentElement !== sealHome){
+        sealHome.appendChild(sealEl);
+      }
+      root.innerHTML = "";
+
+      // 解析 buildDocHTML() 成 DOM，取得內容區塊（避免自己重寫整份模板）
+      const tmp = document.createElement("div");
+      tmp.innerHTML = buildDocHTML();
+      const content = tmp.querySelector(".contentLayer");
+      if(!content){
+        root.textContent = "（預覽產生失敗：找不到內容）";
+        return [];
+      }
+
+      const blocks = Array.from(content.children).map(el => el.cloneNode(true));
+
+      const pages = [];
+      let p = createPage();
+      pages.push(p);
+      // 讓第一頁先進入 DOM，確保後續 overflow 量測（scrollHeight/clientHeight）可靠
+      root.appendChild(p.page);
+
+      let listTitle = null;
+
+      for(const block of blocks){
+        // 記住最近的段落標題，供清單跨頁時重複
+        if(block.classList && block.classList.contains("sectionTitle")){
+          listTitle = block.cloneNode(true);
+        }
+
+        // 中文條列（可能跨頁）：改成逐個 li 塞入
+        if(block.tagName === "UL" && block.classList.contains("cnList")){
+          const items = Array.from(block.children).filter(x => x.tagName === "LI").map(li => li.cloneNode(true));
+
+          const ensureListContainer = () => {
+            // 若頁面還沒有 ul，就建立一個新的
+            let ul = p.layer.querySelector(":scope > ul.cnList:last-of-type");
+            if(!ul){
+              ul = document.createElement("ul");
+              ul.className = "cnList";
+              // 保證頁面已經有標題（如果原始就有，會在 blocks 流程先塞進來）
+              if(listTitle && !p.layer.querySelector(".sectionTitle")){
+                // 這裡避免把標題硬加到第一頁（可能已存在），僅用於跨頁補標題
+                tryAppend(p, listTitle.cloneNode(true));
+              }
+              tryAppend(p, ul);
+            }
+            return ul;
+          };
+
+          let ul = ensureListContainer();
+
+          for(const li of items){
+            ul.appendChild(li);
+            if(isOverflow(p.viewport)){
+              ul.removeChild(li);
+
+              // 新頁
+              p = createPage();
+              pages.push(p);
+              root.appendChild(p.page);
+
+              // 跨頁時重複標題
+              if(listTitle) tryAppend(p, listTitle.cloneNode(true));
+
+              ul = document.createElement("ul");
+              ul.className = "cnList";
+              tryAppend(p, ul);
+
+              ul.appendChild(li);
+            }
+          }
+          continue;
+        }
+
+        // 一般區塊：塞不下就換頁
+        if(!tryAppend(p, block)){
+          // 特例：說明過長時嘗試切段
+          if(block.classList && block.classList.contains("explainRow")){
+            const split = splitExplainRow(block, p);
+            if(split){
+              // left 先放本頁
+              if(!tryAppend(p, split.left)){
+                // 放不下就換頁再放
+                p = createPage();
+                pages.push(p);
+                root.appendChild(p.page);
+                tryAppend(p, split.left);
+              }
+              // right 放下一頁
+              if(split.right){
+                p = createPage();
+                pages.push(p);
+                root.appendChild(p.page);
+                tryAppend(p, split.right);
+              }
+              continue;
+            }
+          }
+
+          p = createPage();
+          pages.push(p);
+          root.appendChild(p.page);
+
+          // 若在空白新頁仍放不下（極端長內容），就硬塞避免卡死
+          if(!tryAppend(p, block)){
+            p.layer.appendChild(block);
+          }
+        }
+      }
+
+      // 掛上頁面並更新頁碼
+      const total = pages.length;
+      const data = getFormData();
+      const docNoText = data.docNo ? `發文字號：${data.docNo}　` : "";
+      pages.forEach((pageObj, idx) => {
+        pageObj.footer.innerHTML = `${docNoText}第 ${idx + 1} 頁，共 ${total} 頁`;
+        // 標記最後一頁，避免列印時多出一頁空白
+        if(idx === total - 1){
+          pageObj.page.classList.add("last-page");
+        }
+      });
+
+      // 印章固定最後一頁
+      placeSealOnLastPage(pages);
+
+      return pages;
+    }
+
+    function placeSealOnLastPage(pages){
+      const sealEl = $("sealDrag");
+      const sealImg = $("sealImg");
+
+      if(!sealDataUrl){
+        if(sealEl) sealEl.style.display = "none";
+        return;
+      }
+      if(!sealEl || !sealImg) return;
+      if(!pages || pages.length === 0) return;
+
+      const lastBox = pages[pages.length - 1].box;
+      lastBox.appendChild(sealEl);
+
+      sealEl.style.display = "block";
+      sealImg.src = sealDataUrl;
+
+      applySealPosition(lastBox);
+      syncSealInputsFromState();
+    }
+
+    function clamp(n, min, max){ return Math.max(min, Math.min(max, n)); }
+
+    function applySealPosition(container){
+      const sealEl = $("sealDrag");
+      if(!container) return;
+
+      const w = sealEl.offsetWidth || SEAL_SIZE_PX;
+      const h = sealEl.offsetHeight || SEAL_SIZE_PX;
+
+      const maxX = container.clientWidth - w;
+      const maxY = container.clientHeight - h;
+
+      sealPos.x = clamp(sealPos.x, 0, maxX);
+      sealPos.y = clamp(sealPos.y, 0, maxY);
+
+      sealEl.style.left = sealPos.x + "px";
+      sealEl.style.top  = sealPos.y + "px";
+    }
+
+    function enableSealDrag(){
+      const sealEl = $("sealDrag");
+
+      let dragging = false;
+      let startX = 0, startY = 0;
+      let originX = 0, originY = 0;
+
+      const getContainer = () => sealEl.parentElement; // ✅ 最後一頁 box
+
+      const onDown = (e) => {
+        if(!sealDataUrl) return;
+        dragging = true;
+        sealEl.classList.add("dragging");
+        const p = e.touches ? e.touches[0] : e;
+        startX = p.clientX;
+        startY = p.clientY;
+        originX = sealPos.x;
+        originY = sealPos.y;
+        e.preventDefault();
+      };
+
+      const onMove = (e) => {
+        if(!dragging) return;
+        const p = e.touches ? e.touches[0] : e;
+        const dx = p.clientX - startX;
+        const dy = p.clientY - startY;
+
+        sealPos.x = originX + dx;
+        sealPos.y = originY + dy;
+
+        applySealPosition(getContainer());
+        e.preventDefault();
+      };
+
+      const onUp = () => {
+        if(!dragging) return;
+        dragging = false;
+        sealEl.classList.remove("dragging");
+        syncSealInputsFromState();
+      };
+
+      sealEl.addEventListener("mousedown", onDown);
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+
+      sealEl.addEventListener("touchstart", onDown, {passive:false});
+      window.addEventListener("touchmove", onMove, {passive:false});
+      window.addEventListener("touchend", onUp);
+    }
+
+    // ====== Render (Offline) ======
+    function render(){
+      // 只要 JS 有在跑，就把靜態提示隱藏（避免畫面太吵）
+      const staticHelp = $("staticPreviewHelp");
+      if(staticHelp) staticHelp.style.display = "none";
+
+      // 舊版提示區（保留 DOM 以避免你手上還有舊預覽方式），離線版固定不使用
+      const previewNotice = $("previewNotice");
+      if(previewNotice){
+        previewNotice.style.display = "none";
+        previewNotice.textContent = "";
+      }
+
+      paginateAndRender();
+    }
+
+    function applyDefaultContent(){
+      $("subject").value = DEFAULT_CONTENT_PRESET.subject;
+      $("explain").value = DEFAULT_CONTENT_PRESET.explain;
+      clearItemsUI();
+      // 預設留空，不自動新增條列項目
+      if(DEFAULT_CONTENT_PRESET.items.length === 0){
+        // 至少保留一個空項目供使用者輸入
+        addItemUI("");
+      } else {
+        DEFAULT_CONTENT_PRESET.items.forEach(x => addItemUI(x));
+      }
+    }
+
+    // ====== JSON Export/Import ======
+    function exportJSON(){
+      const data = getFormData();
+      data.logoDataUrl = logoDataUrl;
+      data.wmDataUrl = wmDataUrl;
+      data.sealPos = sealPos;
+
+      const blob = new Blob([JSON.stringify(data, null, 2)], {type:"application/json"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `公告資料_${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function importJSON(file){
+      const reader = new FileReader();
+      reader.onload = async () => {
+        try{
+          const data = JSON.parse(reader.result);
+          logoDataUrl = data.logoDataUrl || "";
+          wmDataUrl = data.wmDataUrl || "";
+          sealPos = data.sealPos || sealPos;
+          // 印章固定使用本機檔案，不允許由 JSON 覆蓋
+          sealDataUrl = SEAL_SRC;
+          syncSealInputsFromState();
+
+          setFormData(data);
+          await render();
+        }catch(e){
+          alert("JSON 解析失敗，請確認檔案格式。");
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    // ====== PDF ======
+    async function downloadPDF(){
+      await render();
+      setTimeout(() => window.print(), 250);
+    }
+
+    // ====== Word ======
+    async function downloadWord(){
+      await render();
+      
+      // 等待分頁完成
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      const root = $("printRoot");
+      if(!root) return;
+      
+      // 複製所有頁面內容（移除預覽用的樣式，保留內容結構）
+      const clone = root.cloneNode(true);
+      const pages = clone.querySelectorAll(".page");
+      
+      // 建立一個臨時容器來組合所有頁面內容
+      const tempDiv = document.createElement("div");
+      tempDiv.style.width = "210mm";
+      tempDiv.style.padding = "18mm";
+      tempDiv.style.fontFamily = "Noto Sans TC, Microsoft JhengHei, PingFang TC, sans-serif";
+      tempDiv.style.fontSize = "14px";
+      tempDiv.style.lineHeight = "1.65";
+      
+      pages.forEach((page, idx) => {
+        const pagebox = page.querySelector(".pagebox");
+        if(!pagebox) return;
+        
+        // 複製頁面內容（排除浮水印和印章，只保留文字內容）
+        const contentLayer = pagebox.querySelector(".contentLayer");
+        if(contentLayer){
+          const pageContent = contentLayer.cloneNode(true);
+          // 移除浮水印
+          const watermark = pageContent.querySelector(".watermark");
+          if(watermark) watermark.remove();
+          tempDiv.appendChild(pageContent);
+        }
+        
+        // 如果不是最後一頁，加上分頁符
+        if(idx < pages.length - 1){
+          const pageBreak = document.createElement("div");
+          pageBreak.style.pageBreakAfter = "always";
+          pageBreak.style.height = "0";
+          tempDiv.appendChild(pageBreak);
+        }
+      });
+      
+      // 使用 html-docx-js 轉換為 Word 文件
+      if(typeof htmlDocx !== "undefined" && htmlDocx.asBlob){
+        const blob = htmlDocx.asBlob(tempDiv);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `公告_${new Date().toISOString().slice(0,10)}.docx`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        alert("Word 下載功能載入失敗，請確認網路連線或稍後再試。");
+      }
+    }
+
+    // ====== Reset ======
+    async function resetAll(){
+      logoDataUrl = "";
+      sealPos = { x: 360, y: 620 };
+      sealDataUrl = SEAL_SRC;
+      syncSealInputsFromState();
+      // reset 不清掉浮水印（固定公司模板用）
+      wmDataUrl = WATERMARK_LOGO_SRC;
+
+      // 日期下拉：預設今天
+      initIssueDateSelectors();
+
+      setFormData({
+        issueUnit: "品牌及客服",
+        deliveryMethod:"電子傳送",
+        companyName:"怡心工業股份有限公司",
+        companyTaxId:"70596931",
+        companyAddr:"彰化縣伸港鄉興工路1-58號",
+        companyTel:"04-7985998",
+        companyFax:"04-7985198",
+        handler:"黃貞敏",
+        handlerEmail:"dean.huang@e-sing.com.tw",
+        recipient:"怡心集團各分公司",
+        issueDateISO: todayISO(),
+        docSeq:"001",
+        secrecy:"內部機密",
+        attachments:"",
+        subject: DEFAULT_CONTENT_PRESET.subject,
+        explain: DEFAULT_CONTENT_PRESET.explain,
+        items: DEFAULT_CONTENT_PRESET.items
+      });
+
+      updateDocNo();
+      await render();
+    }
+
+    // ====== Events ======
+    // 預覽重新分頁成本較高：用 rAF 節流，避免每次 keypress 都全量重算
+    let renderQueued = false;
+    function scheduleRender(){
+      if(renderQueued) return;
+      renderQueued = true;
+      requestAnimationFrame(() => {
+        renderQueued = false;
+        render();
+      });
+    }
+
+    $("btnUpdate").addEventListener("click", render);
+    $("btnPdf").addEventListener("click", downloadPDF);
+    $("btnWord").addEventListener("click", downloadWord);
+    $("btnReset").addEventListener("click", resetAll);
+
+    $("btnAddItem").addEventListener("click", () => { addItemUI(""); scheduleRender(); });
+
+    // 發文單位 / 日期 / 流水號任一變動 → 重算發文字號
+    $("issueUnit").addEventListener("change", () => { updateDocNo(); scheduleRender(); });
+    $("docSeq").addEventListener("input", () => { updateDocNo(); scheduleRender(); });
+    $("docSeq").addEventListener("blur", () => { $("docSeq").value = getDocSeqPadded(); updateDocNo(); scheduleRender(); });
+
+    $("issueYear").addEventListener("change", () => { refreshDayOptions(); updateDocNo(); scheduleRender(); });
+    $("issueMonth").addEventListener("change", () => { refreshDayOptions(); updateDocNo(); scheduleRender(); });
+    $("issueDay").addEventListener("change", () => { updateDocNo(); scheduleRender(); });
+    $("secrecy").addEventListener("change", scheduleRender);
+
+    // 其它欄位：即時更新預覽（承辦人/地址等）
+    [
+      "deliveryMethod",
+      "companyName",
+      "companyTaxId",
+      "companyTel",
+      "companyFax",
+      "handler",
+      "companyAddr",
+      "handlerEmail",
+      "recipient",
+      "attachments",
+      "subject",
+      "explain"
+    ].forEach((id) => {
+      const el = $(id);
+      if(!el) return;
+      const evt = (el.tagName === "SELECT") ? "change" : "input";
+      el.addEventListener(evt, scheduleRender);
+    });
+
+    // 印章位置欄位：改變時直接套用（固定尺寸）
+    $("sealPosX").addEventListener("input", () => {
+      syncSealStateFromInputs();
+      const container = $("sealDrag").parentElement;
+      if(container) applySealPosition(container);
+    });
+    $("sealPosY").addEventListener("input", () => {
+      syncSealStateFromInputs();
+      const container = $("sealDrag").parentElement;
+      if(container) applySealPosition(container);
+    });
+    $("sealPosX").addEventListener("blur", () => { syncSealStateFromInputs(); syncSealInputsFromState(); scheduleRender(); });
+    $("sealPosY").addEventListener("blur", () => { syncSealStateFromInputs(); syncSealInputsFromState(); scheduleRender(); });
+
+    // Init
+    enableSealDrag();
+    initIssueDateSelectors();
+    applyDefaultContent();
+    updateDocNo();
+    syncSealInputsFromState();
+    render();
+  </script>
+</body>
+</html>
